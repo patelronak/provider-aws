@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
-	"strings"
 
 	"github.com/aws/smithy-go/document"
 
@@ -176,14 +175,18 @@ func IsRoleUpToDate(in v1beta1.RoleParameters, observed iamtypes.Role) (bool, st
 		return false, "", err
 	}
 
+	ignoreFields := []string{"AssumeRolePolicyDocument"}
 	policyUpToDate, err := isAssumeRolePolicyUpToDate(desired.AssumeRolePolicyDocument, observed.AssumeRolePolicyDocument)
 	if err != nil {
 		return false, "", err
 	}
 
-	addTagsMap, removeTags, areTagsUpToDate := DiffIAMTagsReturnStringList(desired.Tags, observed.Tags)
+	_, _, areTagsUpToDate := DiffIAMTagsReturnStringList(desired.Tags, observed.Tags)
+	if areTagsUpToDate {
+		ignoreFields = append(ignoreFields, "Tags")
+	}
 
-	diff := cmp.Diff(desired, &observed, cmpopts.IgnoreInterfaces(struct{ resource.AttributeReferencer }{}), cmpopts.IgnoreFields(observed, "AssumeRolePolicyDocument", "Tags"), cmpopts.IgnoreTypes(document.NoSerde{}))
+	diff := cmp.Diff(desired, &observed, cmpopts.IgnoreInterfaces(struct{ resource.AttributeReferencer }{}), cmpopts.IgnoreFields(observed, ignoreFields...), cmpopts.IgnoreTypes(document.NoSerde{}))
 	if diff == "" && policyUpToDate && areTagsUpToDate {
 		return true, diff, nil
 	}
@@ -196,20 +199,6 @@ func IsRoleUpToDate(in v1beta1.RoleParameters, observed iamtypes.Role) (bool, st
 		diff += *desired.AssumeRolePolicyDocument
 		diff += "\nobserved assume role policy: "
 		diff += *observed.AssumeRolePolicyDocument
-	}
-
-	// Add extra logging for Tags
-	if !areTagsUpToDate {
-		if len(addTagsMap) > 0 {
-			diff += "\n Add Tags: "
-			for k, v := range addTagsMap {
-				diff += k + "=" + v + " "
-			}
-		}
-		if len(removeTags) > 0 {
-			diff += "\n Remove Tags: "
-			diff += strings.Join(removeTags, " ")
-		}
 	}
 	return false, diff, nil
 }
